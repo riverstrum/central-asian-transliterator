@@ -10,6 +10,8 @@
   const mainEl = document.querySelector('.app__main');
   const modeSwitch = document.getElementById('modeSwitch');
   const modeOptions = modeSwitch.querySelectorAll('.mode-switch__option');
+  const scriptSwitch = document.getElementById('scriptSwitch');
+  const scriptOptions = scriptSwitch.querySelectorAll('.mode-switch__option');
   const panelInputLabel = document.querySelector('.panel--input .panel__label span');
   const hint = document.getElementById('hint');
   const previewScroll = document.querySelector('.preview-scroll');
@@ -26,8 +28,10 @@
   };
   const STORAGE_KEY = 'mongolian-script-writer-text';
   const MODE_KEY = 'mongolian-script-writer-mode';
+  const SCRIPT_KEY = 'mongolian-script-writer-script';
 
   let mode = localStorage.getItem(MODE_KEY) === 'cyrillic' ? 'cyrillic' : 'latin';
+  let script = localStorage.getItem(SCRIPT_KEY) === 'olduyghur' ? 'olduyghur' : 'mongolian';
 
   function applyMode() {
     modeSwitch.classList.toggle('is-cyrillic', mode === 'cyrillic');
@@ -48,11 +52,29 @@
     render();
   });
 
+  function applyScript() {
+    scriptSwitch.classList.toggle('is-olduyghur', script === 'olduyghur');
+    scriptOptions.forEach((btn) => btn.classList.toggle('is-active', btn.dataset.script === script));
+    preview.classList.toggle('is-old-uyghur', script === 'olduyghur');
+    localStorage.setItem(SCRIPT_KEY, script);
+  }
+
+  scriptSwitch.addEventListener('click', (e) => {
+    const btn = e.target.closest('.mode-switch__option');
+    if (!btn || btn.dataset.script === script) return;
+    script = btn.dataset.script;
+    applyScript();
+    render();
+  });
+
   function render() {
     const value = input.value;
-    preview.textContent = mode === 'cyrillic'
+    const mongolianText = mode === 'cyrillic'
       ? window.mongolianTranslit.transliterateCyrillic(value)
       : window.mongolianTranslit.transliterate(value);
+    preview.textContent = script === 'olduyghur'
+      ? window.mongolianTranslit.toOldUyghur(mongolianText)
+      : mongolianText;
     previewEmpty.style.display = value.trim() ? 'none' : 'flex';
     localStorage.setItem(STORAGE_KEY, value);
     updatePagination();
@@ -136,6 +158,7 @@
   });
 
   applyMode();
+  applyScript();
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved) input.value = saved;
   render();
