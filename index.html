@@ -3,20 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#1c1a17">
+<meta name="theme-color" content="#ede0c4">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Mongolian Script Writer</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Mongolian&display=swap" rel="stylesheet">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>Central Asian Transliterator</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="app">
     <header class="app__header">
-      <h1>ᠮᠣᠩᠭᠣᠯ ᠪᠢᠴᠢᠭ <span class="app__title-en">Mongolian Script Writer</span></h1>
+      <h1>Central Asian Transliterator</h1>
       <div class="header__controls">
         <div id="modeSwitch" class="mode-switch" role="group" aria-label="Input script">
           <span class="mode-switch__thumb" aria-hidden="true"></span>
@@ -28,7 +25,6 @@
           <button type="button" class="mode-switch__option is-active" data-script="mongolian">MN</button>
           <button type="button" class="mode-switch__option" data-script="olduyghur">OY</button>
         </div>
-        <button id="toggleOrientation" class="icon-btn" title="Switch layout" aria-label="Switch layout">⇄</button>
       </div>
     </header>
 
@@ -56,6 +52,7 @@
           <span>Traditional orientation</span>
           <div class="panel__actions">
             <button id="copyBtn" class="text-btn">Copy</button>
+            <button id="downloadBtn" class="text-btn">Download PNG</button>
           </div>
         </div>
         <div class="preview-scroll">
@@ -63,6 +60,7 @@
             <div id="preview" class="preview-text" aria-live="polite"></div>
           </div>
           <div id="previewEmpty" class="preview-empty">Your text will appear here, rotated into columns read top-to-bottom, left-to-right.</div>
+          <div id="previewWarning" class="preview-empty preview-warning"></div>
         </div>
         <div id="pageDots" class="page-dots"></div>
       </section>

@@ -2,12 +2,12 @@
   const input = document.getElementById('input');
   const preview = document.getElementById('preview');
   const previewEmpty = document.getElementById('previewEmpty');
+  const previewWarning = document.getElementById('previewWarning');
   const clearBtn = document.getElementById('clearBtn');
   const copyBtn = document.getElementById('copyBtn');
+  const downloadBtn = document.getElementById('downloadBtn');
   const sampleBtn = document.getElementById('sampleBtn');
   const fontSize = document.getElementById('fontSize');
-  const toggleOrientation = document.getElementById('toggleOrientation');
-  const mainEl = document.querySelector('.app__main');
   const modeSwitch = document.getElementById('modeSwitch');
   const modeOptions = modeSwitch.querySelectorAll('.mode-switch__option');
   const scriptSwitch = document.getElementById('scriptSwitch');
@@ -25,6 +25,10 @@
   const PLACEHOLDERS = {
     latin: 'Type romanized Mongolian, e.g. "mongol bichig" — sh, ch, zh, ts, kh, ng, oe, ue are digraphs. Use \' to split letters apart.',
     cyrillic: 'Кирилл монгол бичгээр бичнэ үү, жишээ нь "монгол бичиг".',
+  };
+  const MISMATCH_MESSAGES = {
+    latin: 'This looks like Cyrillic text, but the input mode is set to Latin. Switch the toggle above or check your entry.',
+    cyrillic: 'This looks like Latin text, but the input mode is set to Cyrillic. Switch the toggle above or check your entry.',
   };
   const STORAGE_KEY = 'mongolian-script-writer-text';
   const MODE_KEY = 'mongolian-script-writer-mode';
@@ -67,15 +71,34 @@
     render();
   });
 
+  function detectScriptMismatch(value) {
+    const cyrillicCount = (value.match(/[Ѐ-ӿ]/g) || []).length;
+    const latinCount = (value.match(/[a-zA-Z]/g) || []).length;
+    if (mode === 'latin' && cyrillicCount > 0 && cyrillicCount >= latinCount) return true;
+    if (mode === 'cyrillic' && latinCount > 0 && latinCount >= cyrillicCount) return true;
+    return false;
+  }
+
   function render() {
     const value = input.value;
-    const mongolianText = mode === 'cyrillic'
-      ? window.mongolianTranslit.transliterateCyrillic(value)
-      : window.mongolianTranslit.transliterate(value);
-    preview.textContent = script === 'olduyghur'
-      ? window.mongolianTranslit.toOldUyghur(mongolianText)
-      : mongolianText;
-    previewEmpty.style.display = value.trim() ? 'none' : 'flex';
+    const mismatch = value.trim() && detectScriptMismatch(value);
+
+    if (mismatch) {
+      preview.textContent = '';
+      previewWarning.textContent = MISMATCH_MESSAGES[mode];
+      previewWarning.style.display = 'flex';
+      previewEmpty.style.display = 'none';
+    } else {
+      const mongolianText = mode === 'cyrillic'
+        ? window.mongolianTranslit.transliterateCyrillic(value)
+        : window.mongolianTranslit.transliterate(value);
+      preview.textContent = script === 'olduyghur'
+        ? window.mongolianTranslit.toOldUyghur(mongolianText)
+        : mongolianText;
+      previewWarning.style.display = 'none';
+      previewEmpty.style.display = value.trim() ? 'none' : 'flex';
+    }
+
     localStorage.setItem(STORAGE_KEY, value);
     updatePagination();
   }
@@ -147,14 +170,122 @@
     updatePagination();
   });
 
-  let forcedLayout = null; // null = auto, 'row' or 'column'
-  toggleOrientation.addEventListener('click', () => {
-    if (forcedLayout === null) forcedLayout = 'row';
-    else if (forcedLayout === 'row') forcedLayout = 'column';
-    else forcedLayout = null;
+  const FONT_FILES = {
+    mongolian: { family: 'Noto Sans Mongolian', url: 'fonts/NotoSansMongolian-Regular.woff2' },
+    olduyghur: { family: 'Noto Serif Old Uyghur', url: 'fonts/NotoSerifOldUyghur-Regular.woff2' },
+  };
 
-    mainEl.style.flexDirection = forcedLayout || '';
-    requestAnimationFrame(updatePagination);
+  // Reads back the browser's own column-wrap decisions by checking each
+  // character's actual rendered x-position (characters in the same column
+  // share the same left offset in vertical-lr). This keeps the PNG export's
+  // column breaks identical to whatever is currently on screen.
+  function getRenderedColumns(textNode) {
+    if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return [];
+    const text = textNode.data;
+    const columns = [];
+    let currentLeft = null;
+    let currentChars = [];
+    const range = document.createRange();
+    for (let i = 0; i < text.length; i++) {
+      range.setStart(textNode, i);
+      range.setEnd(textNode, i + 1);
+      const rect = range.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) {
+        currentChars.push(text[i]);
+        continue;
+      }
+      if (currentLeft === null) {
+        currentLeft = rect.left;
+      } else if (Math.abs(rect.left - currentLeft) > 2) {
+        columns.push(currentChars.join(''));
+        currentChars = [];
+        currentLeft = rect.left;
+      }
+      currentChars.push(text[i]);
+    }
+    if (currentChars.length) columns.push(currentChars.join(''));
+    return columns;
+  }
+
+  // Renders each column horizontally (proper contextual glyph shaping
+  // happens here, identical to how the un-rotated letterforms are defined)
+  // then rotates that strip 90deg clockwise — mathematically identical to
+  // what writing-mode:vertical-lr does for scripts with
+  // Vertical_Orientation=R, since canvas has no native vertical text layout
+  // to draw into directly. Columns are then placed left-to-right, matching
+  // the on-screen column order.
+  downloadBtn.addEventListener('click', async () => {
+    if (!preview.textContent) return;
+    const original = downloadBtn.textContent;
+    downloadBtn.textContent = 'Rendering…';
+    downloadBtn.disabled = true;
+    try {
+      const font = FONT_FILES[script];
+      const scale = 3;
+      const fontPx = parseFloat(getComputedStyle(preview).fontSize) * scale;
+      const pad = 24 * scale;
+      const gap = 16 * scale;
+
+      await document.fonts.load(`${fontPx}px "${font.family}"`, preview.textContent);
+      await document.fonts.ready;
+
+      const rawColumns = getRenderedColumns(preview.firstChild);
+      const columns = (rawColumns.length ? rawColumns : [preview.textContent])
+        .map((c) => c.replace(/\n+/g, ' '))
+        .filter((c) => c.length);
+
+      const measure = document.createElement('canvas').getContext('2d');
+      measure.font = `${fontPx}px "${font.family}"`;
+      const lineHeight = Math.ceil(fontPx * 1.4);
+
+      const strips = columns.map((colText) => {
+        const textWidth = Math.max(1, Math.ceil(measure.measureText(colText).width));
+        const horizontal = document.createElement('canvas');
+        horizontal.width = textWidth + pad * 2;
+        horizontal.height = lineHeight + pad * 2;
+        const hctx = horizontal.getContext('2d');
+        hctx.font = `${fontPx}px "${font.family}"`;
+        hctx.textBaseline = 'middle';
+        hctx.fillStyle = '#1c1710';
+        hctx.fillText(colText, pad, horizontal.height / 2);
+
+        const rotated = document.createElement('canvas');
+        rotated.width = horizontal.height;
+        rotated.height = horizontal.width;
+        const rctx = rotated.getContext('2d');
+        rctx.translate(rotated.width, 0);
+        rctx.rotate(Math.PI / 2);
+        rctx.drawImage(horizontal, 0, 0);
+        return rotated;
+      });
+
+      const totalWidth = strips.reduce((sum, s) => sum + s.width, 0) + gap * Math.max(0, strips.length - 1);
+      const maxHeight = Math.max(...strips.map((s) => s.height));
+
+      const out = document.createElement('canvas');
+      out.width = totalWidth;
+      out.height = maxHeight;
+      const octx = out.getContext('2d');
+      let x = 0;
+      for (const strip of strips) {
+        octx.drawImage(strip, x, 0);
+        x += strip.width + gap;
+      }
+
+      const pngUrl = out.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = pngUrl;
+      a.download = `central-asian-transliterator-${script}.png`;
+      a.click();
+    } catch (err) {
+      console.error(err);
+      downloadBtn.textContent = 'Failed';
+      setTimeout(() => { downloadBtn.textContent = original; }, 1500);
+      downloadBtn.disabled = false;
+      return;
+    }
+    downloadBtn.textContent = original;
+    downloadBtn.disabled = false;
   });
 
   applyMode();
