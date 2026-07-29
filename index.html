@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1c1a17">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Mongolian Script Writer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Mongolian&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="app__header">
+      <h1>ᠮᠣᠩᠭᠣᠯ ᠪᠢᠴᠢᠭ <span class="app__title-en">Mongolian Script Writer</span></h1>
+      <div class="header__controls">
+        <div id="modeSwitch" class="mode-switch" role="group" aria-label="Input script">
+          <span class="mode-switch__thumb" aria-hidden="true"></span>
+          <button type="button" class="mode-switch__option is-active" data-mode="latin">LAT</button>
+          <button type="button" class="mode-switch__option" data-mode="cyrillic">КИР</button>
+        </div>
+        <button id="toggleOrientation" class="icon-btn" title="Switch layout" aria-label="Switch layout">⇄</button>
+      </div>
+    </header>
+
+    <main class="app__main">
+      <section class="panel panel--input" aria-label="Type in Latin letters">
+        <div class="panel__label">
+          <span>Type in Latin</span>
+          <div class="panel__actions">
+            <button id="sampleBtn" class="text-btn">Sample</button>
+            <button id="clearBtn" class="text-btn">Clear</button>
+          </div>
+        </div>
+        <textarea
+          id="input"
+          class="input-area"
+          placeholder="Type romanized Mongolian, e.g. &quot;mongol bichig&quot; — sh, ch, zh, ts, kh, ng, oe, ue are digraphs. Use ' to split letters apart."
+          autocapitalize="off"
+          autocomplete="off"
+          spellcheck="false"
+        ></textarea>
+      </section>
+
+      <section class="panel panel--preview" aria-label="Traditional vertical orientation preview">
+        <div class="panel__label">
+          <span>Traditional orientation</span>
+          <div class="panel__actions">
+            <button id="copyBtn" class="text-btn">Copy</button>
+          </div>
+        </div>
+        <div class="preview-scroll">
+          <div id="previewTrack" class="preview-track">
+            <div id="preview" class="preview-text" aria-live="polite"></div>
+          </div>
+          <div id="previewEmpty" class="preview-empty">Your text will appear here, rotated into columns read top-to-bottom, left-to-right.</div>
+        </div>
+        <div id="pageDots" class="page-dots"></div>
+      </section>
+    </main>
+
+    <footer class="app__footer">
+      <label class="size-control">
+        <span>Size</span>
+        <input type="range" id="fontSize" min="18" max="64" value="32">
+      </label>
+      <span id="hint" class="hint">Type romanized Mongolian (Latin letters) on the left — it's transliterated into traditional script on the right.</span>
+    </footer>
+  </div>
+
+  <a href="https://riverstrum.com" target="_blank" rel="noopener" class="credit-badge">
+    <span class="credit-badge__mark">RS</span>
+    <span class="credit-badge__text">By River Strumwasser</span>
+  </a>
+
+  <script src="translit.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
