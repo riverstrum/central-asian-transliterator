@@ -79,15 +79,28 @@
     return false;
   }
 
+  const FONT_FILES = {
+    mongolian: { family: 'Noto Sans Mongolian', url: 'fonts/NotoSansMongolian-Regular.woff2' },
+    olduyghur: { family: 'Noto Serif Old Uyghur', url: 'fonts/NotoSerifOldUyghur-Regular.woff2' },
+  };
+
+  // Copy button reads this rather than preview.textContent, since Old
+  // Uyghur mode's preview content is a <canvas>, not text.
+  let lastOutputText = '';
+  let renderToken = 0;
+
   function render() {
     const value = input.value;
     const mismatch = value.trim() && detectScriptMismatch(value);
+    const token = ++renderToken;
 
     if (mismatch) {
-      preview.textContent = '';
+      preview.innerHTML = '';
+      lastOutputText = '';
       previewWarning.textContent = MISMATCH_MESSAGES[mode];
       previewWarning.style.display = 'flex';
       previewEmpty.style.display = 'none';
+      updatePagination();
     } else {
       const mongolianText = mode === 'cyrillic'
         ? window.mongolianTranslit.transliterateCyrillic(value)
@@ -95,13 +108,25 @@
       const outputText = script === 'olduyghur'
         ? window.mongolianTranslit.toOldUyghur(mongolianText)
         : mongolianText;
+      lastOutputText = outputText;
 
-      preview.innerHTML = '';
-      for (const ch of outputText) {
-        const glyph = document.createElement('span');
-        glyph.className = 'preview-glyph';
-        glyph.textContent = ch;
-        preview.appendChild(glyph);
+      if (script === 'olduyghur') {
+        // Rendered via canvas (see renderOldUyghurPreview) rather than CSS
+        // writing-mode, because Chrome's automatic vertical-text glyph
+        // rotation is 180deg off for this very new (Unicode 14.0) script —
+        // no per-script vertical metrics exist yet. Canvas fillText draws
+        // glyphs in their normal horizontal form (full contextual shaping
+        // intact, unaffected by that bug); rotating the shaped result
+        // ourselves sidesteps it entirely.
+        renderOldUyghurPreview(outputText, token);
+      } else {
+        // Kept as a single text node (not split per-character) so the
+        // browser's OpenType shaper can see the full run of neighboring
+        // characters and choose correct initial/medial/final glyph forms —
+        // splitting into per-character spans breaks contextual shaping
+        // entirely, since each glyph then shapes in isolation.
+        preview.textContent = outputText;
+        updatePagination();
       }
 
       previewWarning.style.display = 'none';
@@ -109,6 +134,96 @@
     }
 
     localStorage.setItem(STORAGE_KEY, value);
+  }
+
+  // Greedily packs characters into columns by measured horizontal (shaped)
+  // advance width, backing off once a column would exceed maxHeightPx —
+  // this is what that width becomes after the 90deg rotation.
+  function wrapIntoColumns(measureCtx, text, maxHeightPx) {
+    const columns = [];
+    let current = '';
+    for (const ch of text) {
+      const attempt = current + ch;
+      const w = measureCtx.measureText(attempt).width;
+      if (w > maxHeightPx && current.length) {
+        columns.push(current);
+        current = ch;
+      } else {
+        current = attempt;
+      }
+    }
+    if (current.length) columns.push(current);
+    return columns;
+  }
+
+  // Renders one column: shape horizontally (correct contextual glyph
+  // forms), then rotate the strip 90deg clockwise onto a vertical canvas.
+  function buildColumnStrip(measureCtx, colText, fontFamily, fontPx, pad) {
+    const lineHeight = Math.ceil(fontPx * 1.4);
+    const textWidth = Math.max(1, Math.ceil(measureCtx.measureText(colText).width));
+
+    const horizontal = document.createElement('canvas');
+    horizontal.width = textWidth + pad * 2;
+    horizontal.height = lineHeight + pad * 2;
+    const hctx = horizontal.getContext('2d');
+    hctx.font = `${fontPx}px "${fontFamily}"`;
+    hctx.textBaseline = 'middle';
+    hctx.fillStyle = '#1c1710';
+    hctx.fillText(colText, pad, horizontal.height / 2);
+
+    const rotated = document.createElement('canvas');
+    rotated.width = horizontal.height;
+    rotated.height = horizontal.width;
+    const rctx = rotated.getContext('2d');
+    rctx.translate(rotated.width, 0);
+    rctx.rotate(Math.PI / 2);
+    rctx.drawImage(horizontal, 0, 0);
+    return rotated;
+  }
+
+  async function renderOldUyghurPreview(text, token) {
+    if (!text) {
+      preview.innerHTML = '';
+      updatePagination();
+      return;
+    }
+    const font = FONT_FILES.olduyghur;
+    const scale = Math.min(window.devicePixelRatio || 1, 2);
+    const fontPxCss = parseFloat(getComputedStyle(preview).fontSize);
+    const fontPx = fontPxCss * scale;
+    const pad = 16 * scale;
+
+    await document.fonts.load(`${fontPx}px "${font.family}"`, text);
+    await document.fonts.ready;
+    if (token !== renderToken) return; // superseded by a newer render
+
+    const measure = document.createElement('canvas').getContext('2d');
+    measure.font = `${fontPx}px "${font.family}"`;
+
+    const maxHeightPx = Math.max(1, previewScroll.clientHeight * scale - pad * 2);
+    const columns = wrapIntoColumns(measure, text, maxHeightPx);
+    const strips = columns.map((col) => buildColumnStrip(measure, col, font.family, fontPx, pad));
+
+    const gap = 8 * scale;
+    const totalWidth = strips.reduce((sum, s) => sum + s.width, 0) + gap * Math.max(0, strips.length - 1);
+    const maxHeight = Math.max(...strips.map((s) => s.height));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = totalWidth;
+    canvas.height = maxHeight;
+    canvas.style.width = `${totalWidth / scale}px`;
+    canvas.style.height = `${maxHeight / scale}px`;
+    canvas.style.display = 'block';
+    const ctx = canvas.getContext('2d');
+    let x = 0;
+    for (const strip of strips) {
+      ctx.drawImage(strip, x, 0);
+      x += strip.width + gap;
+    }
+
+    if (token !== renderToken) return;
+    preview.innerHTML = '';
+    preview.appendChild(canvas);
     updatePagination();
   }
 
@@ -162,9 +277,9 @@
   });
 
   copyBtn.addEventListener('click', async () => {
-    if (!input.value) return;
+    if (!lastOutputText) return;
     try {
-      await navigator.clipboard.writeText(preview.textContent);
+      await navigator.clipboard.writeText(lastOutputText);
       const original = copyBtn.textContent;
       copyBtn.textContent = 'Copied';
       setTimeout(() => { copyBtn.textContent = original; }, 1200);
@@ -176,26 +291,28 @@
 
   fontSize.addEventListener('input', () => {
     preview.style.fontSize = `${fontSize.value}px`;
-    updatePagination();
+    if (script === 'olduyghur') renderOldUyghurPreview(lastOutputText, ++renderToken);
+    else updatePagination();
   });
 
-  const FONT_FILES = {
-    mongolian: { family: 'Noto Sans Mongolian', url: 'fonts/NotoSansMongolian-Regular.woff2' },
-    olduyghur: { family: 'Noto Serif Old Uyghur', url: 'fonts/NotoSerifOldUyghur-Regular.woff2' },
-  };
-
   // Reads back the browser's own column-wrap decisions by checking each
-  // glyph's actual rendered x-position (glyphs in the same column share the
-  // same left offset in vertical-lr). This keeps the PNG export's column
-  // breaks identical to whatever is currently on screen.
+  // character's actual rendered x-position (characters in the same column
+  // share the same left offset in vertical-lr). Uses Range rather than
+  // per-character spans so the text stays one contiguous node for shaping.
   function getRenderedColumns() {
+    const textNode = preview.firstChild;
+    if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return [];
+    const text = textNode.data;
     const columns = [];
     let currentLeft = null;
     let currentChars = [];
-    for (const glyph of preview.children) {
-      const rect = glyph.getBoundingClientRect();
+    const range = document.createRange();
+    for (let i = 0; i < text.length; i++) {
+      range.setStart(textNode, i);
+      range.setEnd(textNode, i + 1);
+      const rect = range.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) {
-        currentChars.push(glyph.textContent);
+        currentChars.push(text[i]);
         continue;
       }
       if (currentLeft === null) {
@@ -205,21 +322,19 @@
         currentChars = [];
         currentLeft = rect.left;
       }
-      currentChars.push(glyph.textContent);
+      currentChars.push(text[i]);
     }
     if (currentChars.length) columns.push(currentChars.join(''));
     return columns;
   }
 
-  // Renders each column horizontally (proper contextual glyph shaping
-  // happens here, identical to how the un-rotated letterforms are defined)
-  // then rotates that strip 90deg clockwise — mathematically identical to
-  // what writing-mode:vertical-lr does for scripts with
-  // Vertical_Orientation=R, since canvas has no native vertical text layout
-  // to draw into directly. Columns are then placed left-to-right, matching
-  // the on-screen column order.
+  // Columns are placed left-to-right, matching the on-screen column order.
+  // Mongolian mode reads column breaks back from the live CSS-rendered
+  // text (getRenderedColumns); Old Uyghur mode re-derives them the same
+  // way its own canvas preview does (wrapIntoColumns), so download and
+  // on-screen preview always agree.
   downloadBtn.addEventListener('click', async () => {
-    if (!preview.textContent) return;
+    if (!lastOutputText) return;
     const original = downloadBtn.textContent;
     downloadBtn.textContent = 'Rendering…';
     downloadBtn.disabled = true;
@@ -230,38 +345,23 @@
       const pad = 24 * scale;
       const gap = 16 * scale;
 
-      await document.fonts.load(`${fontPx}px "${font.family}"`, preview.textContent);
+      await document.fonts.load(`${fontPx}px "${font.family}"`, lastOutputText);
       await document.fonts.ready;
-
-      const rawColumns = getRenderedColumns();
-      const columns = (rawColumns.length ? rawColumns : [preview.textContent])
-        .map((c) => c.replace(/\n+/g, ' '))
-        .filter((c) => c.length);
 
       const measure = document.createElement('canvas').getContext('2d');
       measure.font = `${fontPx}px "${font.family}"`;
-      const lineHeight = Math.ceil(fontPx * 1.4);
 
-      const strips = columns.map((colText) => {
-        const textWidth = Math.max(1, Math.ceil(measure.measureText(colText).width));
-        const horizontal = document.createElement('canvas');
-        horizontal.width = textWidth + pad * 2;
-        horizontal.height = lineHeight + pad * 2;
-        const hctx = horizontal.getContext('2d');
-        hctx.font = `${fontPx}px "${font.family}"`;
-        hctx.textBaseline = 'middle';
-        hctx.fillStyle = '#1c1710';
-        hctx.fillText(colText, pad, horizontal.height / 2);
+      let columns;
+      if (script === 'olduyghur') {
+        const maxHeightPx = Math.max(1, previewScroll.clientHeight * scale - pad * 2);
+        columns = wrapIntoColumns(measure, lastOutputText, maxHeightPx);
+      } else {
+        const rawColumns = getRenderedColumns();
+        columns = rawColumns.length ? rawColumns : [lastOutputText];
+      }
+      columns = columns.map((c) => c.replace(/\n+/g, ' ')).filter((c) => c.length);
 
-        const rotated = document.createElement('canvas');
-        rotated.width = horizontal.height;
-        rotated.height = horizontal.width;
-        const rctx = rotated.getContext('2d');
-        rctx.translate(rotated.width, 0);
-        rctx.rotate(Math.PI / 2);
-        rctx.drawImage(horizontal, 0, 0);
-        return rotated;
-      });
+      const strips = columns.map((colText) => buildColumnStrip(measure, colText, font.family, fontPx, pad));
 
       const totalWidth = strips.reduce((sum, s) => sum + s.width, 0) + gap * Math.max(0, strips.length - 1);
       const maxHeight = Math.max(...strips.map((s) => s.height));
