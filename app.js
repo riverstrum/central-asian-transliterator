@@ -92,9 +92,18 @@
       const mongolianText = mode === 'cyrillic'
         ? window.mongolianTranslit.transliterateCyrillic(value)
         : window.mongolianTranslit.transliterate(value);
-      preview.textContent = script === 'olduyghur'
+      const outputText = script === 'olduyghur'
         ? window.mongolianTranslit.toOldUyghur(mongolianText)
         : mongolianText;
+
+      preview.innerHTML = '';
+      for (const ch of outputText) {
+        const glyph = document.createElement('span');
+        glyph.className = 'preview-glyph';
+        glyph.textContent = ch;
+        preview.appendChild(glyph);
+      }
+
       previewWarning.style.display = 'none';
       previewEmpty.style.display = value.trim() ? 'none' : 'flex';
     }
@@ -176,22 +185,17 @@
   };
 
   // Reads back the browser's own column-wrap decisions by checking each
-  // character's actual rendered x-position (characters in the same column
-  // share the same left offset in vertical-lr). This keeps the PNG export's
-  // column breaks identical to whatever is currently on screen.
-  function getRenderedColumns(textNode) {
-    if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return [];
-    const text = textNode.data;
+  // glyph's actual rendered x-position (glyphs in the same column share the
+  // same left offset in vertical-lr). This keeps the PNG export's column
+  // breaks identical to whatever is currently on screen.
+  function getRenderedColumns() {
     const columns = [];
     let currentLeft = null;
     let currentChars = [];
-    const range = document.createRange();
-    for (let i = 0; i < text.length; i++) {
-      range.setStart(textNode, i);
-      range.setEnd(textNode, i + 1);
-      const rect = range.getBoundingClientRect();
+    for (const glyph of preview.children) {
+      const rect = glyph.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) {
-        currentChars.push(text[i]);
+        currentChars.push(glyph.textContent);
         continue;
       }
       if (currentLeft === null) {
@@ -201,7 +205,7 @@
         currentChars = [];
         currentLeft = rect.left;
       }
-      currentChars.push(text[i]);
+      currentChars.push(glyph.textContent);
     }
     if (currentChars.length) columns.push(currentChars.join(''));
     return columns;
@@ -229,7 +233,7 @@
       await document.fonts.load(`${fontPx}px "${font.family}"`, preview.textContent);
       await document.fonts.ready;
 
-      const rawColumns = getRenderedColumns(preview.firstChild);
+      const rawColumns = getRenderedColumns();
       const columns = (rawColumns.length ? rawColumns : [preview.textContent])
         .map((c) => c.replace(/\n+/g, ' '))
         .filter((c) => c.length);

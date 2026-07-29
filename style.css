@@ -263,6 +263,18 @@ body {
   display: none;
 }
 
+.preview-glyph {
+  display: inline-block;
+}
+
+/* Chrome's automatic vertical-text glyph rotation is 180deg off for this
+   very new (Unicode 14.0) script — no per-script vertical metrics yet —
+   so each glyph is counter-rotated in place. Column/row layout position is
+   untouched since `transform` only affects painting, not box geometry. */
+.preview-text.is-old-uyghur .preview-glyph {
+  transform: rotate(180deg);
+}
+
 .page-dots {
   display: flex;
   justify-content: center;
@@ -326,6 +338,7 @@ body {
 
 .size-control input[type="range"] {
   width: 100px;
+  accent-color: var(--accent);
 }
 
 .hint {
